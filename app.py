@@ -62,12 +62,27 @@ toco_rate = st.sidebar.slider("Toco Rate (R$/km)", min_value=3.0, max_value=10.0
 vuc_rate = st.sidebar.slider("VUC Rate (R$/km)", min_value=1.0, max_value=7.0, value=3.5, step=0.5)
 
 st.sidebar.markdown("---")
+st.sidebar.subheader("🔍 Node Explorer")
+
+# Create a dropdown search bar for Customer Nodes
+all_customers = sorted(od_matrix['demand_node_id'].unique())
+selected_customers = st.sidebar.multiselect(
+    "Lookup Customer Node(s):", 
+    options=all_customers,
+    help="Select one or multiple nodes. Leave blank to view the entire network."
+)
+
+st.sidebar.markdown("---")
 st.sidebar.info("Model Engine: PuLP (CBC Solver)\n\nClustering: DBSCAN (Eps=50km)")
 
 # -----------------------------------------------------------------------------
 # 4. EXECUTIVE KPI RIBBON
 # -----------------------------------------------------------------------------
-# Recalculate cost based on exact CSV column names
+# FILTER LOGIC: If a user selects specific customers, filter the entire dataframe first
+if len(selected_customers) > 0:
+    od_matrix = od_matrix[od_matrix['demand_node_id'].isin(selected_customers)]
+
+# RECALCULATION LOGIC: Multiply slider rates by truck counts and route distance
 if 'Carreta_Count' in od_matrix.columns:
     od_matrix['Dyn_Cost_RS'] = (
         (od_matrix['Carreta_Count'] * carreta_rate * od_matrix['distance_km']) +
@@ -75,7 +90,7 @@ if 'Carreta_Count' in od_matrix.columns:
         (od_matrix['VUC_Count'] * vuc_rate * od_matrix['distance_km'])
     )
 
-# Calculate totals for the dashboard display
+# Calculate totals for the dashboard display based on the active filter
 total_volume = od_matrix['lane_cube_m3'].sum()
 total_weight = od_matrix['lane_payload_tons'].sum()
 total_distance = od_matrix['distance_km'].sum()
