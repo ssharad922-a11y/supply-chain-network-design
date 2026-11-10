@@ -158,29 +158,53 @@ with tab3:
 
 st.markdown("---")
 # -----------------------------------------------------------------------------
-# 6. TACTICAL OPERATIONS (CHARTS & TABLES)
+# 6. TACTICAL OPERATIONS & UNIT ECONOMICS
 # -----------------------------------------------------------------------------
-st.subheader("Tactical Route Analysis")
+st.subheader("Tactical Route Analysis & Unit Economics")
+
+# Calculate Unit Economics (From your notes: Price of 1m³/1km and 1kg/1km)
+# (lane_payload_tons * 1000 converts tons to kg)
+od_matrix['Cost_per_m3_km (R$)'] = (od_matrix['Dyn_Cost_RS'] / (od_matrix['lane_cube_m3'] * od_matrix['distance_km'])).round(4)
+od_matrix['Cost_per_kg_km (R$)'] = (od_matrix['Dyn_Cost_RS'] / ((od_matrix['lane_payload_tons'] * 1000) * od_matrix['distance_km'])).round(4)
+
 chart_col, table_col = st.columns([1, 1])
 
 with chart_col:
-    top_10_chart = od_matrix.nlargest(10, 'lane_payload_tons').copy()
-    top_10_chart['Route_Name'] = top_10_chart['plant_node_id'].astype(str) + " ➡️ " + top_10_chart['demand_node_id'].astype(str)
-    
-    fig = px.bar(
-        top_10_chart, 
-        x='lane_payload_tons', 
-        y='Route_Name', 
-        orientation='h',
-        title="Top 10 Routes by Freight Weight (Tons)",
-        color_discrete_sequence=['#00FFCC']
-    )
+    # Highest Contributors Logic
+    # If no specific customer is selected, show the most expensive demand nodes overall
+    if len(selected_customers) == 0:
+        top_contributors = od_matrix.groupby('demand_node_id')['Dyn_Cost_RS'].sum().reset_index()
+        top_contributors = top_contributors.nlargest(10, 'Dyn_Cost_RS')
+        top_contributors['Node_Label'] = "Node " + top_contributors['demand_node_id'].astype(str)
+        
+        fig = px.bar(
+            top_contributors, 
+            x='Dyn_Cost_RS', 
+            y='Node_Label', 
+            orientation='h',
+            title="Highest Contributors: Top 10 Nodes by Freight Spend",
+            color_discrete_sequence=['#FF3366']
+        )
+    # If customers are selected, show their heaviest routes
+    else:
+        top_contributors = od_matrix.nlargest(10, 'lane_payload_tons').copy()
+        top_contributors['Route_Name'] = top_contributors['plant_node_id'].astype(str) + " ➡️ " + top_contributors['demand_node_id'].astype(str)
+        
+        fig = px.bar(
+            top_contributors, 
+            x='lane_payload_tons', 
+            y='Route_Name', 
+            orientation='h',
+            title="Top Routes for Selected Node(s) by Weight (Tons)",
+            color_discrete_sequence=['#00FFCC']
+        )
+
     fig.update_layout(yaxis={'categoryorder':'total ascending'}, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
     st.plotly_chart(fig, use_container_width=True)
 
 with table_col:
-    st.markdown("**Top Shipping Lanes (Sortable)**")
-    display_df = od_matrix[['plant_node_id', 'demand_node_id', 'distance_km', 'lane_payload_tons', 'Dyn_Cost_RS']]
+    st.markdown("**Lane Unit Economics (Sortable)**")
+    display_df = od_matrix[['plant_node_id', 'demand_node_id', 'distance_km', 'Dyn_Cost_RS', 'Cost_per_m3_km (R$)', 'Cost_per_kg_km (R$)']]
     
     st.dataframe(
         display_df.sort_values('Dyn_Cost_RS', ascending=False).head(20),
