@@ -34,18 +34,19 @@ st.markdown("Mixed-Integer Linear Programming (MILP) Fleet Optimization Model")
 # -----------------------------------------------------------------------------
 @st.cache_data
 def load_data():
-    # Replace these with your actual file names
     try:
         od_matrix = pd.read_csv('Optimized_Shipping_Lanes.csv')
         origins = pd.read_csv('Origin_Hub_Constraints.csv')
     except FileNotFoundError:
         # Failsafe mock data just in case the CSVs aren't in the folder yet
+        # Added fleet counts so the interactivity works even on mock data
         od_matrix = pd.DataFrame({
             'plant_node_id': [0, 14, 2], 'demand_node_id': [45, 14, 11],
             'lane_payload_tons': [15.0, 8.5, 22.1], 'lane_cube_m3': [37.8, 12.1, 85.0],
             'distance_km': [2040, 45, 850], 'Dyn_Cost_RS': [1350, 450, 2100],
             'origin_lat': [-22.9, -23.5, -19.9], 'origin_lng': [-47.1, -46.6, -44.1],
-            'dest_lat': [-8.3, -23.5, -20.3], 'dest_lng': [-35.5, -46.6, -40.3]
+            'dest_lat': [-8.3, -23.5, -20.3], 'dest_lng': [-35.5, -46.6, -40.3],
+            'carreta_count': [1, 0, 2], 'toco_count': [0, 1, 0], 'vuc_count': [0, 0, 1]
         })
     return od_matrix
 
@@ -67,7 +68,15 @@ st.sidebar.info("Model Engine: PuLP (CBC Solver)\n\nClustering: DBSCAN (Eps=50km
 # -----------------------------------------------------------------------------
 # 4. EXECUTIVE KPI RIBBON
 # -----------------------------------------------------------------------------
-# Calculate mock totals for the dashboard display
+# RECALCULATION LOGIC: Multiply slider rates by truck counts and route distance
+if 'carreta_count' in od_matrix.columns:
+    od_matrix['Dyn_Cost_RS'] = (
+        (od_matrix['carreta_count'] * carreta_rate * od_matrix['distance_km']) +
+        (od_matrix['toco_count'] * toco_rate * od_matrix['distance_km']) +
+        (od_matrix['vuc_count'] * vuc_rate * od_matrix['distance_km'])
+    )
+
+# Calculate totals for the dashboard display based on the freshly updated dataframe
 total_volume = od_matrix['lane_cube_m3'].sum()
 total_weight = od_matrix['lane_payload_tons'].sum()
 total_distance = od_matrix['distance_km'].sum()
@@ -82,7 +91,6 @@ col4.metric("Total Freight Spend (R$)", f"R$ {total_cost:,.2f}")
 st.markdown("---")
 
 # -----------------------------------------------------------------------------
-# -----------------------------------------------------------------------------
 # 5. GEOSPATIAL VISUALIZATION (TABS FOR 3 MAPS)
 # -----------------------------------------------------------------------------
 tab1, tab2, tab3 = st.tabs(["🏭 Origin Hubs", "🎯 Demand Regions", "🕸️ Logistics Corridors"])
@@ -90,9 +98,8 @@ tab1, tab2, tab3 = st.tabs(["🏭 Origin Hubs", "🎯 Demand Regions", "🕸️ 
 # MAP 1: SSELLERS / PLANT NODES
 with tab1:
     st.subheader("Consolidated Seller Hubs (Plant Nodes)")
-    brazil_map1 = folium.Map(location=[-15.7801, -47.9292], zoom_start=4) # Default OpenStreetMap
+    brazil_map1 = folium.Map(location=[-15.7801, -47.9292], zoom_start=4) 
     
-    # Extract unique origin locations to plot the hubs
     origins_df = od_matrix.drop_duplicates(subset=['plant_node_id'])
     
     for index, row in origins_df.iterrows():
@@ -109,7 +116,6 @@ with tab2:
     st.subheader("Regional Customer Centers (Demand Nodes)")
     brazil_map2 = folium.Map(location=[-15.7801, -47.9292], zoom_start=4)
     
-    # Extract unique destination locations to plot the customers
     destinations_df = od_matrix.drop_duplicates(subset=['demand_node_id'])
     
     for index, row in destinations_df.iterrows():
@@ -127,7 +133,6 @@ with tab3:
     brazil_map3 = folium.Map(location=[-15.7801, -47.9292], zoom_start=4)
     
     for index, row in od_matrix.head(50).iterrows():
-        # Draw the shipping lane
         folium.PolyLine(
             locations=[[row['origin_lat'], row['origin_lng']], [row['dest_lat'], row['dest_lng']]],
             weight=2, color='#0000FF', opacity=0.5,
@@ -145,7 +150,6 @@ st.subheader("Tactical Route Analysis")
 chart_col, table_col = st.columns([1, 1])
 
 with chart_col:
-    # 6A. Horizontal Bar Chart (Top 10 Routes by Payload)
     top_10_chart = od_matrix.nlargest(10, 'lane_payload_tons').copy()
     top_10_chart['Route_Name'] = top_10_chart['plant_node_id'].astype(str) + " ➡️ " + top_10_chart['demand_node_id'].astype(str)
     
@@ -161,11 +165,10 @@ with chart_col:
     st.plotly_chart(fig, use_container_width=True)
 
 with table_col:
-    # 6B. Sortable Dataframe
     st.markdown("**Top Shipping Lanes (Sortable)**")
+    # Because Dyn_Cost_RS is recalculated above, this table will also update instantly
     display_df = od_matrix[['plant_node_id', 'demand_node_id', 'distance_km', 'lane_payload_tons', 'Dyn_Cost_RS']]
     
-    # Use Streamlit's native interactive dataframe
     st.dataframe(
         display_df.sort_values('Dyn_Cost_RS', ascending=False).head(20),
         use_container_width=True,
