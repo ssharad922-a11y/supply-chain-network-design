@@ -19,8 +19,10 @@ The final model is wrapped in a Streamlit application featuring:
 * **Executive KPIs:** Track total freight spend, route length, and payload metrics.
 * **Geospatial Visualization:** Interactive Folium maps rendering origin hubs, demand nodes, and high-density logistics corridors.
 
-![Logistics Corridors](link-to-your-screenshot-here.png)
-*(Note: Replace the link above with a screenshot of your map tab once you upload it to GitHub)*
+
+
+##Link for dashboard
+https://supply-chain-network-design-gpsddgnqfkm2arhipwqjed.streamlit.app/
 
 ## ⚙️ Local Installation
 ```bash
