@@ -36,16 +36,20 @@ st.markdown("Mixed-Integer Linear Programming (MILP) Fleet Optimization Model")
 def load_data():
     try:
         od_matrix = pd.read_csv('Optimized_Shipping_Lanes.csv')
-        origins = pd.read_csv('Origin_Hub_Constraints.csv')
+        # Failsafe in case the CSV hasn't fully propagated on GitHub yet
+        if 'Origin_City' not in od_matrix.columns:
+            od_matrix['Origin_City'] = "Hub Node " + od_matrix['plant_node_id'].astype(str)
+            od_matrix['Dest_City'] = "Customer Node " + od_matrix['demand_node_id'].astype(str)
     except FileNotFoundError:
-        # Failsafe mock data just in case the CSVs aren't in the folder yet
         od_matrix = pd.DataFrame({
             'plant_node_id': [0, 14, 2], 'demand_node_id': [45, 14, 11],
             'lane_payload_tons': [15.0, 8.5, 22.1], 'lane_cube_m3': [37.8, 12.1, 85.0],
             'distance_km': [2040, 45, 850], 'Dyn_Cost_RS': [1350, 450, 2100],
             'origin_lat': [-22.9, -23.5, -19.9], 'origin_lng': [-47.1, -46.6, -44.1],
             'dest_lat': [-8.3, -23.5, -20.3], 'dest_lng': [-35.5, -46.6, -40.3],
-            'Carreta_Count': [1, 0, 2], 'Toco_Count': [0, 1, 0], 'VUC_Count': [0, 0, 1]
+            'Carreta_Count': [1, 0, 2], 'Toco_Count': [0, 1, 0], 'VUC_Count': [0, 0, 1],
+            'Origin_City': ['Campinas, SP', 'São Paulo, SP', 'Curitiba, PR'],
+            'Dest_City': ['Recife, PE', 'São Paulo, SP', 'Rio de Janeiro, RJ']
         })
     return od_matrix
 
@@ -54,8 +58,8 @@ od_matrix = load_data()
 # -----------------------------------------------------------------------------
 # 3. SIDEBAR: THE CONTROL PANEL
 # -----------------------------------------------------------------------------
-st.sidebar.header("⚙️ Logistics Parameters")
-st.sidebar.markdown("Adjust freight rates to simulate network changes.")
+st.sidebar.header("⚙️ Global Market Rates (R$/km)")
+st.sidebar.markdown("Adjust freight rates to simulate market changes.")
 
 carreta_rate = st.sidebar.slider("Carreta Rate (R$/km)", min_value=5.0, max_value=15.0, value=8.5, step=0.5)
 toco_rate = st.sidebar.slider("Toco Rate (R$/km)", min_value=3.0, max_value=10.0, value=5.5, step=0.5)
@@ -64,12 +68,11 @@ vuc_rate = st.sidebar.slider("VUC Rate (R$/km)", min_value=1.0, max_value=7.0, v
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔍 Node Explorer")
 
-# Create a dropdown search bar for Customer Nodes
-all_customers = sorted(od_matrix['demand_node_id'].unique())
+all_customers = sorted(od_matrix['Dest_City'].dropna().unique())
 selected_customers = st.sidebar.multiselect(
-    "Lookup Customer Node(s):", 
+    "Lookup Customer Region(s):", 
     options=all_customers,
-    help="Select one or multiple nodes. Leave blank to view the entire network."
+    help="Select one or multiple cities. Leave blank for the entire network."
 )
 
 st.sidebar.markdown("---")
@@ -78,11 +81,11 @@ st.sidebar.info("Model Engine: PuLP (CBC Solver)\n\nClustering: DBSCAN (Eps=50km
 # -----------------------------------------------------------------------------
 # 4. EXECUTIVE KPI RIBBON
 # -----------------------------------------------------------------------------
-# FILTER LOGIC: If a user selects specific customers, filter the entire dataframe first
+# FILTER LOGIC
 if len(selected_customers) > 0:
-    od_matrix = od_matrix[od_matrix['demand_node_id'].isin(selected_customers)]
+    od_matrix = od_matrix[od_matrix['Dest_City'].isin(selected_customers)]
 
-# RECALCULATION LOGIC: Multiply slider rates by truck counts and route distance
+# RECALCULATION LOGIC
 if 'Carreta_Count' in od_matrix.columns:
     od_matrix['Dyn_Cost_RS'] = (
         (od_matrix['Carreta_Count'] * carreta_rate * od_matrix['distance_km']) +
@@ -90,7 +93,6 @@ if 'Carreta_Count' in od_matrix.columns:
         (od_matrix['VUC_Count'] * vuc_rate * od_matrix['distance_km'])
     )
 
-# Calculate totals for the dashboard display based on the active filter
 total_volume = od_matrix['lane_cube_m3'].sum()
 total_weight = od_matrix['lane_payload_tons'].sum()
 total_distance = od_matrix['distance_km'].sum()
@@ -105,97 +107,81 @@ col4.metric("Total Freight Spend (R$)", f"R$ {total_cost:,.2f}")
 st.markdown("---")
 
 # -----------------------------------------------------------------------------
-# 5. GEOSPATIAL VISUALIZATION (TABS FOR 3 MAPS)
+# 5. GEOSPATIAL VISUALIZATION
 # -----------------------------------------------------------------------------
 tab1, tab2, tab3 = st.tabs(["🏭 Origin Hubs", "🎯 Demand Regions", "🕸️ Logistics Corridors"])
 
-# MAP 1: SELLER / PLANT NODES
 with tab1:
     st.subheader("Consolidated Seller Hubs (Plant Nodes)")
     brazil_map1 = folium.Map(location=[-15.7801, -47.9292], zoom_start=4) 
-    
     origins_df = od_matrix.drop_duplicates(subset=['plant_node_id'])
-    
     for index, row in origins_df.iterrows():
         folium.CircleMarker(
             location=[row['origin_lat'], row['origin_lng']],
             radius=8, color='#FF3366', fill=True, fill_opacity=0.7,
-            tooltip=f"Seller Hub Node: {row['plant_node_id']}"
+            tooltip=f"Seller Hub: {row['Origin_City']}"
         ).add_to(brazil_map1)
-        
     st_folium(brazil_map1, width=1200, height=500, key="map1")
 
-# MAP 2: CUSTOMERS / DEMAND NODES
 with tab2:
     st.subheader("Regional Customer Centers (Demand Nodes)")
     brazil_map2 = folium.Map(location=[-15.7801, -47.9292], zoom_start=4)
-    
     destinations_df = od_matrix.drop_duplicates(subset=['demand_node_id'])
-    
     for index, row in destinations_df.iterrows():
         folium.CircleMarker(
             location=[row['dest_lat'], row['dest_lng']],
             radius=5, color='#33CCFF', fill=True, fill_opacity=0.7,
-            tooltip=f"Customer Region Node: {row['demand_node_id']}"
+            tooltip=f"Customer Region: {row['Dest_City']}"
         ).add_to(brazil_map2)
-        
     st_folium(brazil_map2, width=1200, height=500, key="map2")
 
-# MAP 3: LOGISTICS CORRIDORS
 with tab3:
     st.subheader("High-Density Shipping Lanes")
     brazil_map3 = folium.Map(location=[-15.7801, -47.9292], zoom_start=4)
-    
     for index, row in od_matrix.head(50).iterrows():
         folium.PolyLine(
             locations=[[row['origin_lat'], row['origin_lng']], [row['dest_lat'], row['dest_lng']]],
             weight=2, color='#0000FF', opacity=0.5,
-            tooltip=(f"Route: Node {row['plant_node_id']} to {row['demand_node_id']}<br>"
+            tooltip=(f"Route: {row['Origin_City']} ➡️ {row['Dest_City']}<br>"
                      f"Payload: {row['lane_payload_tons']:.1f} Tons")
         ).add_to(brazil_map3)
-        
     st_folium(brazil_map3, width=1200, height=500, key="map3")
 
 st.markdown("---")
+
 # -----------------------------------------------------------------------------
 # 6. TACTICAL OPERATIONS & UNIT ECONOMICS
 # -----------------------------------------------------------------------------
 st.subheader("Tactical Route Analysis & Unit Economics")
 
-# Calculate Unit Economics (From your notes: Price of 1m³/1km and 1kg/1km)
-# (lane_payload_tons * 1000 converts tons to kg)
 od_matrix['Cost_per_m3_km (R$)'] = (od_matrix['Dyn_Cost_RS'] / (od_matrix['lane_cube_m3'] * od_matrix['distance_km'])).round(4)
 od_matrix['Cost_per_kg_km (R$)'] = (od_matrix['Dyn_Cost_RS'] / ((od_matrix['lane_payload_tons'] * 1000) * od_matrix['distance_km'])).round(4)
 
 chart_col, table_col = st.columns([1, 1])
 
 with chart_col:
-    # Highest Contributors Logic
-    # If no specific customer is selected, show the most expensive demand nodes overall
     if len(selected_customers) == 0:
-        top_contributors = od_matrix.groupby('demand_node_id')['Dyn_Cost_RS'].sum().reset_index()
+        top_contributors = od_matrix.groupby('Dest_City')['Dyn_Cost_RS'].sum().reset_index()
         top_contributors = top_contributors.nlargest(10, 'Dyn_Cost_RS')
-        top_contributors['Node_Label'] = "Node " + top_contributors['demand_node_id'].astype(str)
         
         fig = px.bar(
             top_contributors, 
             x='Dyn_Cost_RS', 
-            y='Node_Label', 
+            y='Dest_City', 
             orientation='h',
-            title="Highest Contributors: Top 10 Nodes by Freight Spend",
+            title="Highest Contributors: Top 10 Cities by Freight Spend",
             color_discrete_sequence=['#FF3366']
         )
-    # If customers are selected, show their heaviest routes
     else:
         top_contributors = od_matrix.nlargest(10, 'lane_payload_tons').copy()
-        top_contributors['Route_Name'] = top_contributors['plant_node_id'].astype(str) + " ➡️ " + top_contributors['demand_node_id'].astype(str)
+        top_contributors['Route_Name'] = top_contributors['Origin_City'] + " ➡️ " + top_contributors['Dest_City']
         
         fig = px.bar(
             top_contributors, 
             x='lane_payload_tons', 
             y='Route_Name', 
             orientation='h',
-            title="Top Routes for Selected Node(s) by Weight (Tons)",
+            title="Top Routes for Selected City by Weight (Tons)",
             color_discrete_sequence=['#00FFCC']
         )
 
@@ -204,14 +190,13 @@ with chart_col:
 
 with table_col:
     st.markdown("**Lane Unit Economics (Sortable)**")
-    display_df = od_matrix[['plant_node_id', 'demand_node_id', 'distance_km', 'Dyn_Cost_RS', 'Cost_per_m3_km (R$)', 'Cost_per_kg_km (R$)']]
+    display_df = od_matrix[['Origin_City', 'Dest_City', 'distance_km', 'Dyn_Cost_RS', 'Cost_per_m3_km (R$)', 'Cost_per_kg_km (R$)']]
     
     st.dataframe(
         display_df.sort_values('Dyn_Cost_RS', ascending=False).head(20),
         use_container_width=True,
         hide_index=True
     )
-
 
 # -----------------------------------------------------------------------------
 # 7. PREDICTIVE SCENARIO CALCULATOR (WHAT-IF SANDBOX)
@@ -220,29 +205,24 @@ st.markdown("---")
 st.subheader("🔮 What-If Scenario Sandbox: Beat the Model")
 st.markdown("Select a specific route, input a custom payload, and try to build a cheaper fleet mix than the optimization engine.")
 
-# Step 1: Route Selection
 route_col1, route_col2, route_col3 = st.columns(3)
 
 with route_col1:
-    # Get unique plant nodes
-    seller_nodes = sorted(od_matrix['plant_node_id'].unique())
-    selected_seller = st.selectbox("1. Select Origin (Seller Node)", options=seller_nodes)
+    seller_cities = sorted(od_matrix['Origin_City'].dropna().unique())
+    selected_seller = st.selectbox("1. Select Origin (Seller City)", options=seller_cities)
 
 with route_col2:
-    # Filter available demand nodes based on selected seller
-    valid_demand_nodes = sorted(od_matrix[od_matrix['plant_node_id'] == selected_seller]['demand_node_id'].unique())
-    selected_customer = st.selectbox("2. Select Destination (Customer Node)", options=valid_demand_nodes)
+    valid_demand_cities = sorted(od_matrix[od_matrix['Origin_City'] == selected_seller]['Dest_City'].dropna().unique())
+    selected_customer = st.selectbox("2. Select Destination (Customer City)", options=valid_demand_cities)
     
 with route_col3:
-    # Auto-lookup distance based on the exact route
-    lane_data = od_matrix[(od_matrix['plant_node_id'] == selected_seller) & (od_matrix['demand_node_id'] == selected_customer)]
+    lane_data = od_matrix[(od_matrix['Origin_City'] == selected_seller) & (od_matrix['Dest_City'] == selected_customer)]
     if not lane_data.empty:
         actual_distance = lane_data['distance_km'].values[0]
     else:
-        actual_distance = 500.0 # Failsafe
+        actual_distance = 500.0 
     st.metric("3. Route Distance", f"{actual_distance:,.0f} km")
 
-# Step 2: Payload Input
 st.markdown("**4. Define Your Custom Payload**")
 payload_col1, payload_col2 = st.columns(2)
 with payload_col1:
@@ -250,7 +230,6 @@ with payload_col1:
 with payload_col2:
     sim_weight = st.number_input("Total Weight (Tons)", min_value=1.0, value=30.0, step=1.0)
 
-# Calculate Baseline "Optimal" using greedy heuristic
 vol_rem, wt_rem = sim_vol, sim_weight
 opt_carreta = opt_toco = opt_vuc = 0
 
@@ -269,7 +248,6 @@ if vol_rem > 0 or wt_rem > 0:
 
 opt_cost = (opt_carreta * carreta_rate * actual_distance) + (opt_toco * toco_rate * actual_distance) + (opt_vuc * vuc_rate * actual_distance)
 
-# Step 3: Manual Override Sliders
 st.markdown("---")
 st.markdown("**5. Build Your Fleet (Manual Override)**")
 
@@ -281,16 +259,13 @@ with fleet_col2:
 with fleet_col3:
     usr_vuc = st.slider("VUCs (15m³ / 4T)", 0, 10, int(opt_vuc))
 
-# Calculate User's Manual Cost and Capacity
 usr_cost = (usr_carreta * carreta_rate * actual_distance) + (usr_toco * toco_rate * actual_distance) + (usr_vuc * vuc_rate * actual_distance)
 usr_vol_cap = (usr_carreta * 95) + (usr_toco * 45) + (usr_vuc * 15)
 usr_wt_cap = (usr_carreta * 25) + (usr_toco * 14) + (usr_vuc * 4)
 
-# Capacity Check Boolean
 vol_ok = usr_vol_cap >= sim_vol
 wt_ok = usr_wt_cap >= sim_weight
 
-# Display Results Comparison
 st.markdown("### 🏆 Result Comparison")
 res_col1, res_col2 = st.columns(2)
 
