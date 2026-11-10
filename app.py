@@ -68,17 +68,15 @@ st.sidebar.info("Model Engine: PuLP (CBC Solver)\n\nClustering: DBSCAN (Eps=50km
 # -----------------------------------------------------------------------------
 # 4. EXECUTIVE KPI RIBBON
 # -----------------------------------------------------------------------------
-# Recalculate using a try/except block to catch exact column name mismatches
-try:
+# RECALCULATION LOGIC: Multiply slider rates by truck counts and route distance
+if 'Carreta_Count' in od_matrix.columns:
     od_matrix['Dyn_Cost_RS'] = (
-        (od_matrix['carreta_count'] * carreta_rate * od_matrix['distance_km']) +
-        (od_matrix['toco_count'] * toco_rate * od_matrix['distance_km']) +
-        (od_matrix['vuc_count'] * vuc_rate * od_matrix['distance_km'])
+        (od_matrix['Carreta_Count'] * carreta_rate * od_matrix['distance_km']) +
+        (od_matrix['Toco_Count'] * toco_rate * od_matrix['distance_km']) +
+        (od_matrix['VUC_Count'] * vuc_rate * od_matrix['distance_km'])
     )
-except KeyError as e:
-    st.error(f"Data Error: Your CSV is missing the column {e}. Please check your CSV to see how the truck counts are spelled (e.g., 'Carreta_Count').")
 
-# Calculate totals for the dashboard display
+# Calculate totals for the dashboard display based on the freshly updated dataframe
 total_volume = od_matrix['lane_cube_m3'].sum()
 total_weight = od_matrix['lane_payload_tons'].sum()
 total_distance = od_matrix['distance_km'].sum()
