@@ -30,7 +30,7 @@ st.title("🚛 Brazil Supply Chain Network Design")
 st.markdown("Mixed-Integer Linear Programming (MILP) Fleet Optimization Model")
 
 # -----------------------------------------------------------------------------
-# 2. DATA LOADING (Using the CSVs we generated)
+# 2. DATA LOADING
 # -----------------------------------------------------------------------------
 @st.cache_data
 def load_data():
@@ -39,14 +39,13 @@ def load_data():
         origins = pd.read_csv('Origin_Hub_Constraints.csv')
     except FileNotFoundError:
         # Failsafe mock data just in case the CSVs aren't in the folder yet
-        # Added fleet counts so the interactivity works even on mock data
         od_matrix = pd.DataFrame({
             'plant_node_id': [0, 14, 2], 'demand_node_id': [45, 14, 11],
             'lane_payload_tons': [15.0, 8.5, 22.1], 'lane_cube_m3': [37.8, 12.1, 85.0],
             'distance_km': [2040, 45, 850], 'Dyn_Cost_RS': [1350, 450, 2100],
             'origin_lat': [-22.9, -23.5, -19.9], 'origin_lng': [-47.1, -46.6, -44.1],
             'dest_lat': [-8.3, -23.5, -20.3], 'dest_lng': [-35.5, -46.6, -40.3],
-            'carreta_count': [1, 0, 2], 'toco_count': [0, 1, 0], 'vuc_count': [0, 0, 1]
+            'Carreta_Count': [1, 0, 2], 'Toco_Count': [0, 1, 0], 'VUC_Count': [0, 0, 1]
         })
     return od_matrix
 
@@ -68,7 +67,7 @@ st.sidebar.info("Model Engine: PuLP (CBC Solver)\n\nClustering: DBSCAN (Eps=50km
 # -----------------------------------------------------------------------------
 # 4. EXECUTIVE KPI RIBBON
 # -----------------------------------------------------------------------------
-# RECALCULATION LOGIC: Multiply slider rates by truck counts and route distance
+# Recalculate cost based on exact CSV column names
 if 'Carreta_Count' in od_matrix.columns:
     od_matrix['Dyn_Cost_RS'] = (
         (od_matrix['Carreta_Count'] * carreta_rate * od_matrix['distance_km']) +
@@ -76,7 +75,7 @@ if 'Carreta_Count' in od_matrix.columns:
         (od_matrix['VUC_Count'] * vuc_rate * od_matrix['distance_km'])
     )
 
-# Calculate totals for the dashboard display based on the freshly updated dataframe
+# Calculate totals for the dashboard display
 total_volume = od_matrix['lane_cube_m3'].sum()
 total_weight = od_matrix['lane_payload_tons'].sum()
 total_distance = od_matrix['distance_km'].sum()
@@ -95,7 +94,7 @@ st.markdown("---")
 # -----------------------------------------------------------------------------
 tab1, tab2, tab3 = st.tabs(["🏭 Origin Hubs", "🎯 Demand Regions", "🕸️ Logistics Corridors"])
 
-# MAP 1: SSELLERS / PLANT NODES
+# MAP 1: SELLER / PLANT NODES
 with tab1:
     st.subheader("Consolidated Seller Hubs (Plant Nodes)")
     brazil_map1 = folium.Map(location=[-15.7801, -47.9292], zoom_start=4) 
@@ -166,7 +165,6 @@ with chart_col:
 
 with table_col:
     st.markdown("**Top Shipping Lanes (Sortable)**")
-    # Because Dyn_Cost_RS is recalculated above, this table will also update instantly
     display_df = od_matrix[['plant_node_id', 'demand_node_id', 'distance_km', 'lane_payload_tons', 'Dyn_Cost_RS']]
     
     st.dataframe(
