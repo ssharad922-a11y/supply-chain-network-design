@@ -214,42 +214,96 @@ with table_col:
 
 
 # -----------------------------------------------------------------------------
-# 7. PREDICTIVE SCENARIO CALCULATOR
+# 7. PREDICTIVE SCENARIO CALCULATOR (WHAT-IF SANDBOX)
 # -----------------------------------------------------------------------------
 st.markdown("---")
-st.subheader("🔮 Predictive Scenario Calculator")
-st.markdown("Simulate the optimal fleet mix and cost for a custom shipment size.")
+st.subheader("🔮 What-If Scenario Sandbox: Beat the Model")
+st.markdown("Select a specific route, input a custom payload, and try to build a cheaper fleet mix than the optimization engine.")
 
-scen_col1, scen_col2, scen_col3 = st.columns(3)
-with scen_col1:
-    sim_vol = st.number_input("Shipment Volume (m³)", min_value=0.0, value=120.0, step=10.0)
-with scen_col2:
-    sim_weight = st.number_input("Shipment Weight (Tons)", min_value=0.0, value=30.0, step=1.0)
-with scen_col3:
-    sim_dist = st.number_input("Route Distance (km)", min_value=1.0, value=500.0, step=50.0)
+# Step 1: Route Selection
+route_col1, route_col2, route_col3 = st.columns(3)
 
-# Lightweight heuristic optimization for the simulator
-# (Assuming standard Brazilian truck capacities - adjustable if your MILP differs)
+with route_col1:
+    # Get unique plant nodes
+    seller_nodes = sorted(od_matrix['plant_node_id'].unique())
+    selected_seller = st.selectbox("1. Select Origin (Seller Node)", options=seller_nodes)
+
+with route_col2:
+    # Filter available demand nodes based on selected seller
+    valid_demand_nodes = sorted(od_matrix[od_matrix['plant_node_id'] == selected_seller]['demand_node_id'].unique())
+    selected_customer = st.selectbox("2. Select Destination (Customer Node)", options=valid_demand_nodes)
+    
+with route_col3:
+    # Auto-lookup distance based on the exact route
+    lane_data = od_matrix[(od_matrix['plant_node_id'] == selected_seller) & (od_matrix['demand_node_id'] == selected_customer)]
+    if not lane_data.empty:
+        actual_distance = lane_data['distance_km'].values[0]
+    else:
+        actual_distance = 500.0 # Failsafe
+    st.metric("3. Route Distance", f"{actual_distance:,.0f} km")
+
+# Step 2: Payload Input
+st.markdown("**4. Define Your Custom Payload**")
+payload_col1, payload_col2 = st.columns(2)
+with payload_col1:
+    sim_vol = st.number_input("Total Volume (m³)", min_value=1.0, value=120.0, step=10.0)
+with payload_col2:
+    sim_weight = st.number_input("Total Weight (Tons)", min_value=1.0, value=30.0, step=1.0)
+
+# Calculate Baseline "Optimal" using greedy heuristic
 vol_rem, wt_rem = sim_vol, sim_weight
-sim_carreta = sim_toco = sim_vuc = 0
+opt_carreta = opt_toco = opt_vuc = 0
 
-# Greedy allocation prioritizing the largest truck
-while vol_rem > 45 or wt_rem > 14:  # More than a Toco can handle
-    sim_carreta += 1
-    vol_rem = max(0, vol_rem - 95)  # Carreta capacity: 95 m3
-    wt_rem = max(0, wt_rem - 25)    # Carreta capacity: 25 Tons
+while vol_rem > 45 or wt_rem > 14:  
+    opt_carreta += 1
+    vol_rem = max(0, vol_rem - 95)  
+    wt_rem = max(0, wt_rem - 25)    
 
-while vol_rem > 15 or wt_rem > 4:   # More than a VUC can handle
-    sim_toco += 1
-    vol_rem = max(0, vol_rem - 45)  # Toco capacity: 45 m3
-    wt_rem = max(0, wt_rem - 14)    # Toco capacity: 14 Tons
+while vol_rem > 15 or wt_rem > 4:   
+    opt_toco += 1
+    vol_rem = max(0, vol_rem - 45)  
+    wt_rem = max(0, wt_rem - 14)    
 
 if vol_rem > 0 or wt_rem > 0:
-    sim_vuc += 1                    # VUC covers the remainder
+    opt_vuc += 1                    
 
-# Calculate predicted cost using the live slider rates
-sim_cost = (sim_carreta * carreta_rate * sim_dist) + (sim_toco * toco_rate * sim_dist) + (sim_vuc * vuc_rate * sim_dist)
+opt_cost = (opt_carreta * carreta_rate * actual_distance) + (opt_toco * toco_rate * actual_distance) + (opt_vuc * vuc_rate * actual_distance)
 
-# Display the prediction result
-st.success(f"**Optimal Fleet Required:** {sim_carreta} Carretas, {sim_toco} Tocos, {sim_vuc} VUCs")
-st.info(f"**Estimated Freight Cost:** R$ {sim_cost:,.2f}")
+# Step 3: Manual Override Sliders
+st.markdown("---")
+st.markdown("**5. Build Your Fleet (Manual Override)**")
+
+fleet_col1, fleet_col2, fleet_col3 = st.columns(3)
+with fleet_col1:
+    usr_carreta = st.slider("Carretas (95m³ / 25T)", 0, 10, int(opt_carreta))
+with fleet_col2:
+    usr_toco = st.slider("Tocos (45m³ / 14T)", 0, 10, int(opt_toco))
+with fleet_col3:
+    usr_vuc = st.slider("VUCs (15m³ / 4T)", 0, 10, int(opt_vuc))
+
+# Calculate User's Manual Cost and Capacity
+usr_cost = (usr_carreta * carreta_rate * actual_distance) + (usr_toco * toco_rate * actual_distance) + (usr_vuc * vuc_rate * actual_distance)
+usr_vol_cap = (usr_carreta * 95) + (usr_toco * 45) + (usr_vuc * 15)
+usr_wt_cap = (usr_carreta * 25) + (usr_toco * 14) + (usr_vuc * 4)
+
+# Capacity Check Boolean
+vol_ok = usr_vol_cap >= sim_vol
+wt_ok = usr_wt_cap >= sim_weight
+
+# Display Results Comparison
+st.markdown("### 🏆 Result Comparison")
+res_col1, res_col2 = st.columns(2)
+
+with res_col1:
+    st.info(f"**Model's Optimal Fleet:**\n\n{opt_carreta} Carretas, {opt_toco} Tocos, {opt_vuc} VUCs")
+    st.metric("Model Optimal Cost", f"R$ {opt_cost:,.2f}")
+    
+with res_col2:
+    if vol_ok and wt_ok:
+        st.success(f"**Your Manual Fleet:**\n\n{usr_carreta} Carretas, {usr_toco} Tocos, {usr_vuc} VUCs")
+        delta_cost = usr_cost - opt_cost
+        st.metric("Your Fleet Cost", f"R$ {usr_cost:,.2f}", delta=f"{delta_cost:,.2f} R$ vs Optimal", delta_color="inverse")
+    else:
+        st.error(f"**Your Manual Fleet:**\n\n{usr_carreta} Carretas, {usr_toco} Tocos, {usr_vuc} VUCs")
+        st.metric("Your Fleet Cost", f"R$ {usr_cost:,.2f}")
+        st.warning("⚠️ Insufficient Capacity! Your selected fleet cannot carry the requested payload.")
