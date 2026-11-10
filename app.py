@@ -211,3 +211,45 @@ with table_col:
         use_container_width=True,
         hide_index=True
     )
+
+
+# -----------------------------------------------------------------------------
+# 7. PREDICTIVE SCENARIO CALCULATOR
+# -----------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("🔮 Predictive Scenario Calculator")
+st.markdown("Simulate the optimal fleet mix and cost for a custom shipment size.")
+
+scen_col1, scen_col2, scen_col3 = st.columns(3)
+with scen_col1:
+    sim_vol = st.number_input("Shipment Volume (m³)", min_value=0.0, value=120.0, step=10.0)
+with scen_col2:
+    sim_weight = st.number_input("Shipment Weight (Tons)", min_value=0.0, value=30.0, step=1.0)
+with scen_col3:
+    sim_dist = st.number_input("Route Distance (km)", min_value=1.0, value=500.0, step=50.0)
+
+# Lightweight heuristic optimization for the simulator
+# (Assuming standard Brazilian truck capacities - adjustable if your MILP differs)
+vol_rem, wt_rem = sim_vol, sim_weight
+sim_carreta = sim_toco = sim_vuc = 0
+
+# Greedy allocation prioritizing the largest truck
+while vol_rem > 45 or wt_rem > 14:  # More than a Toco can handle
+    sim_carreta += 1
+    vol_rem = max(0, vol_rem - 95)  # Carreta capacity: 95 m3
+    wt_rem = max(0, wt_rem - 25)    # Carreta capacity: 25 Tons
+
+while vol_rem > 15 or wt_rem > 4:   # More than a VUC can handle
+    sim_toco += 1
+    vol_rem = max(0, vol_rem - 45)  # Toco capacity: 45 m3
+    wt_rem = max(0, wt_rem - 14)    # Toco capacity: 14 Tons
+
+if vol_rem > 0 or wt_rem > 0:
+    sim_vuc += 1                    # VUC covers the remainder
+
+# Calculate predicted cost using the live slider rates
+sim_cost = (sim_carreta * carreta_rate * sim_dist) + (sim_toco * toco_rate * sim_dist) + (sim_vuc * vuc_rate * sim_dist)
+
+# Display the prediction result
+st.success(f"**Optimal Fleet Required:** {sim_carreta} Carretas, {sim_toco} Tocos, {sim_vuc} VUCs")
+st.info(f"**Estimated Freight Cost:** R$ {sim_cost:,.2f}")
